@@ -27,53 +27,71 @@ class _TeacherManagementPageState extends ConsumerState<TeacherManagementPage> {
   }
 
   Future<void> _uploadExcel() async {
-    final fileService = ref.read(fileServiceProvider);
-    final result = await fileService.pickFile();
+    try {
+      final fileService = ref.read(fileServiceProvider);
+      final result = await fileService.pickFile();
 
-    if (result == null) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Dosya seçilmedi.')));
+      if (result == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('Dosya seçilmedi.')));
+        }
+        return;
       }
-      return;
-    }
 
-    final bytes = result.files.single.bytes;
-    if (bytes == null) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Dosya okunamadı.')));
+      final bytes = result.files.single.bytes;
+      if (bytes == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('Dosya okunamadı.')));
+        }
+        return;
       }
-      return;
-    }
 
-    // Parse Excel
-    final rows = fileService.parseExcel(bytes);
+      // Parse Excel
+      final rows = fileService.parseExcel(bytes);
 
-    // Skip header row, map to Teacher
-    final uuid = const Uuid();
-    int addedCount = 0;
+      if (rows.isEmpty || rows.length < 2) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Excel dosyası boş veya geçersiz.')),
+          );
+        }
+        return;
+      }
 
-    for (var i = 1; i < rows.length; i++) {
-      final row = rows[i];
-      if (row.length < 2) continue;
+      // Skip header row, map to Teacher
+      final uuid = const Uuid();
+      int addedCount = 0;
 
-      final teacher = Teacher(
-        id: uuid.v4(),
-        name: row[0].toString(),
-        branch: row.length > 1 ? row[1].toString() : '',
-      );
+      for (var i = 1; i < rows.length; i++) {
+        final row = rows[i];
+        if (row.length < 2) continue;
 
-      ref.read(teachersProvider.notifier).addTeacher(teacher);
-      addedCount++;
-    }
+        final teacher = Teacher(
+          id: uuid.v4(),
+          name: row[0].toString(),
+          branch: row.length > 1 ? row[1].toString() : '',
+          schoolId: 'school-1', // TODO: Get from current user context
+        );
 
-    if (mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('$addedCount öğretmen eklendi.')));
+        await ref.read(teachersProvider.notifier).addTeacher(teacher);
+        addedCount++;
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$addedCount öğretmen eklendi.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Excel yüklenirken hata oluştu: $e')),
+        );
+      }
     }
   }
 
@@ -111,21 +129,43 @@ class _TeacherManagementPageState extends ConsumerState<TeacherManagementPage> {
             child: const Text('İptal'),
           ),
           ElevatedButton(
-            onPressed: () {
+            onPressed: () async {
               if (nameController.text.isEmpty) return;
 
               final teacher = Teacher(
                 id: const Uuid().v4(),
                 name: nameController.text,
                 branch: branchController.text,
+                schoolId: 'school-1', // TODO: Get from current user context
               );
 
-              ref.read(teachersProvider.notifier).addTeacher(teacher);
               Navigator.pop(ctx);
 
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Öğretmen eklendi.')),
-              );
+              final success = await ref
+                  .read(teachersProvider.notifier)
+                  .addTeacher(teacher);
+
+              if (context.mounted) {
+                if (success) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Öğretmen başarıyla eklendi.'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                } else {
+                  final error = ref.read(teacherErrorProvider);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        error ??
+                            'Öğretmen eklenemedi. Lütfen giriş yaptığınızdan emin olun.',
+                      ),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
             },
             child: const Text('Ekle'),
           ),

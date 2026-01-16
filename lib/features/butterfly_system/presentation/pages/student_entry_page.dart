@@ -88,15 +88,27 @@ class _ExcelUploadTab extends ConsumerWidget {
                   const SizedBox(height: 24),
                   OutlinedButton.icon(
                     onPressed: () async {
-                      await ref
+                      final result = await ref
                           .read(studentsProvider.notifier)
                           .pickAndImportFile();
                       if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Dosya işlendi ve listeye eklendi.'),
-                          ),
-                        );
+                        if (result.hasError) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(result.errorMessage!),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                        } else if (result.hasData) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                '${result.successCount} öğrenci başarıyla eklendi.',
+                              ),
+                              backgroundColor: Colors.green,
+                            ),
+                          );
+                        }
                       }
                     },
                     icon: const Icon(Icons.folder_open),

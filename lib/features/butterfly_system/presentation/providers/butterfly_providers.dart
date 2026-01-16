@@ -1,55 +1,110 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/foundation.dart';
 import '../../../../core/providers/global_providers.dart';
 import '../../domain/entities/entities.dart';
 import 'package:uuid/uuid.dart';
+
+/// Result of file import operation
+class ImportResult {
+  final int successCount;
+  final int errorCount;
+  final String? errorMessage;
+
+  const ImportResult({
+    required this.successCount,
+    this.errorCount = 0,
+    this.errorMessage,
+  });
+
+  bool get hasError => errorMessage != null;
+  bool get hasData => successCount > 0;
+}
 
 // Students Management
 class StudentsNotifier extends StateNotifier<List<Student>> {
   final Ref ref;
   StudentsNotifier(this.ref) : super([]);
 
-  Future<void> pickAndImportFile() async {
-    final fileService = ref.read(fileServiceProvider);
+  Future<ImportResult> pickAndImportFile() async {
+    try {
+      final fileService = ref.read(fileServiceProvider);
 
-    // Pick File
-    final result = await fileService.pickFile();
-    if (result == null) return; // User canceled
+      // Pick File
+      final result = await fileService.pickFile();
+      if (result == null) {
+        return const ImportResult(
+          successCount: 0,
+          errorMessage: 'Dosya seçilmedi.',
+        );
+      }
 
-    final bytes = result.files.single.bytes;
-    if (bytes == null) return; // Should be handled for web/desktop
+      final platformFile = result.files.single;
+      final bytes = platformFile.bytes;
+      if (bytes == null) {
+        return const ImportResult(
+          successCount: 0,
+          errorMessage: 'Dosya okunamadı.',
+        );
+      }
 
-    // Parse
-    // Assuming Excel for now. Could check extension.
-    final rows = fileService.parseExcel(bytes);
+      // Parse based on file extension
+      List<List<dynamic>> rows;
+      final extension = platformFile.extension?.toLowerCase() ?? '';
 
-    // Map to Student Objects
-    // Skip header (row 0) if necessary, assuming Row 0 is header
-    final List<Student> newStudents = [];
-    final uuid = const Uuid();
+      if (extension == 'csv') {
+        rows = fileService.parseCsv(bytes);
+      } else {
+        rows = fileService.parseExcel(bytes);
+      }
 
-    for (var i = 1; i < rows.length; i++) {
-      final row = rows[i];
-      if (row.length < 3) continue; // Basic validation check
+      if (rows.isEmpty || rows.length < 2) {
+        return const ImportResult(
+          successCount: 0,
+          errorMessage: 'Dosya boş veya geçersiz format.',
+        );
+      }
 
-      // Expected: No, Name, Class-Section
-      final student = Student(
-        id: uuid.v4(),
-        number: row[0].toString(),
-        name: row[1].toString(),
-        className: row[2]
-            .toString()
-            .split('-')[0]
-            .trim(), // e.g. "9" from "9-A"
-        branch: row.length > 3
-            ? row[3].toString()
-            : (row[2].toString().contains('-')
-                  ? row[2].toString().split('-')[1]
-                  : 'A'),
+      // Map to Student Objects
+      // Skip header (row 0) if necessary, assuming Row 0 is header
+      final List<Student> newStudents = [];
+      final uuid = const Uuid();
+      int errorCount = 0;
+
+      for (var i = 1; i < rows.length; i++) {
+        final row = rows[i];
+        if (row.length < 3) {
+          errorCount++;
+          continue;
+        }
+
+        // Expected: No, Name, Class-Section
+        final student = Student(
+          id: uuid.v4(),
+          number: row[0].toString(),
+          name: row[1].toString(),
+          className: row[2]
+              .toString()
+              .split('-')[0]
+              .trim(), // e.g. "9" from "9-A"
+          branch: row.length > 3
+              ? row[3].toString()
+              : (row[2].toString().contains('-')
+                    ? row[2].toString().split('-')[1]
+                    : 'A'),
+        );
+        newStudents.add(student);
+      }
+
+      state = [...state, ...newStudents];
+
+      return ImportResult(
+        successCount: newStudents.length,
+        errorCount: errorCount,
       );
-      newStudents.add(student);
+    } catch (e) {
+      debugPrint('Student import error: $e');
+      return ImportResult(successCount: 0, errorMessage: 'Import hatası: $e');
     }
-
-    state = [...state, ...newStudents];
   }
 
   void addStudent(Student student) {
